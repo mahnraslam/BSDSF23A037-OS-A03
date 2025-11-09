@@ -1,25 +1,13 @@
+#include "shell.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>   // For strcmp, strncpy, bzero
+#include <string.h>   // For strcmp, strncpy, bzero, strdup
 #include <unistd.h>   // For chdir, fork, execvp
 #include <sys/wait.h> // For waitpid
 #include <errno.h>    // For perror
 
-// --- Constants ---
-#define MAX_LEN 512    // Maximum length of a command line
-#define MAXARGS 10     // Maximum number of arguments
-#define ARGLEN 30      // Maximum length of an argument
-#define PROMPT "shell> " // Your shell's prompt
-
-// --- Function Prototypes ---
-// We declare all our functions first so 'main' can find them.
-char* read_cmd(char* prompt, FILE* fp);
-char** tokenize(char* cmdline);
-int handle_builtin(char** arglist);
-int execute(char* arglist[]);
- 
 // -----------------------------------------------------------------
-// BUILT-IN COMMAND HANDLER
+// BUILT-IN COMMAND HANDLER (MODIFIED)
 // -----------------------------------------------------------------
 /**
  * handle_builtin(char** arglist)
@@ -62,6 +50,8 @@ int handle_builtin(char** arglist) {
         printf("  cd <directory>   - Change the current directory.\n");
         printf("  help             - Display this help message.\n");
         printf("  jobs             - (Not yet implemented).\n");
+        printf("  history          - Show the last 20 commands.\n");
+        printf("  !n               - Execute the nth command from history.\n");
         printf("  exit             - Exit the shell.\n");
         printf("\n");
         printf("Any other command will be executed externally.\n");
@@ -74,6 +64,27 @@ int handle_builtin(char** arglist) {
         printf("Job control not yet implemented.\n");
         // Return 1 because we handled the command
         return 1;
+    }
+
+    // *** TASK 3: IMPLEMENT 'history' BUILT-IN ***
+    if (strcmp(cmd, "history") == 0) {
+        int start_num = 1;      // The logical number of the first command to print
+        int start_index = 0;    // The array index of the first command
+
+        // If history is full and has wrapped around
+        if (history_total_count > HISTORY_SIZE) {
+            start_num = history_total_count - HISTORY_SIZE;
+            start_index = history_total_count % HISTORY_SIZE;
+        }
+        
+        for (int i = 0; i < history_current_size; i++) {
+            int current_index = (start_index + i) % HISTORY_SIZE;
+            int current_num = start_num + i;
+            
+            // Print formatted: "  [num]  [command]"
+            printf("%5d  %s\n", current_num, history[current_index]);
+        }
+        return 1; // Command was handled
     }
 
     // If no built-in commands matched, return 0
@@ -151,4 +162,84 @@ char** tokenize(char* cmdline) {
 
     arglist[argnum] = NULL; // Null-terminate the argument list
     return arglist;
+}
+
+// -----------------------------------------------------------------
+// HISTORY HELPER FUNCTIONS (NEW)
+// -----------------------------------------------------------------
+
+/**
+ * @brief Adds a command to the circular history buffer.
+ */
+void add_to_history(char* cmdline) {
+    // Get the next available index in our circular buffer
+    int index = history_total_count % HISTORY_SIZE;
+    
+    // Free the old command at this slot, if it exists
+    if (history[index] != NULL) {
+        free(history[index]);
+    }
+    
+    // Copy the new command into the slot
+    // strdup combines malloc() and strcpy()
+    history[index] = strdup(cmdline);
+    
+    history_total_count++;
+    
+    if (history_current_size < HISTORY_SIZE) {
+        history_current_size++;
+    }
+}
+
+/**
+ * @brief Handles the !n command re-execution.
+ * @return A *new* string (a copy from history) if !n is valid.
+ * The *original* cmdline pointer if it's not a '!' command.
+ * `NULL` if it's a '!' command but has an error (e.g., out of bounds).
+ */
+char* handle_bang_exec(char* cmdline) {
+    // Not a '!' command, return the original pointer
+    if (cmdline[0] != '!') {
+        return cmdline;
+    }
+
+    // `atoi` converts the string "123" to the integer 123
+    // It returns 0 if the string is not a valid number (e.g., "!" or "!abc")
+    int n = atoi(&cmdline[1]);
+
+    if (n == 0) {
+        fprintf(stderr, "sshell: %s: event not found\n", cmdline);
+        return NULL; // Signal error
+    }
+
+    // --- Check if 'n' is in the valid range ---
+    
+    // Find the smallest valid command number
+    int min_n = 1;
+    if (history_total_count >= HISTORY_SIZE) {
+        min_n = history_total_count - HISTORY_SIZE;
+    }
+    
+    // The largest valid command number is the one we *just* ran (or are about to)
+    // But since add_to_history hasn't run yet, the max is the *previous* total.
+    int max_n = history_total_count;
+
+    if (n < min_n || n > max_n) {
+        fprintf(stderr, "sshell: %s: event not found\n", cmdline);
+        return NULL; // Signal error
+    }
+
+    // --- 'n' is valid, find its index in the array ---
+
+    // Find the array index of the *oldest* command (min_n)
+    int start_index = 0;
+    if (history_total_count > HISTORY_SIZE) {
+        start_index = (history_total_count - HISTORY_SIZE) % HISTORY_SIZE;
+    }
+    
+    // The command 'n' is (n - min_n) steps *after* the oldest command
+    int target_index = (start_index + (n - min_n)) % HISTORY_SIZE;
+
+    // Return a *new copy* of the command from history
+    return strdup(history[target_index]);
 }
