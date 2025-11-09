@@ -1,4 +1,4 @@
- #ifndef SHELL_H
+#ifndef SHELL_H
 #define SHELL_H
 
 // --- Includes ---
@@ -8,28 +8,45 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <errno.h>
-// *** ADD READLINE HEADERS ***
+#include <fcntl.h> // For open() flags
+
+// Readline headers
 #include <readline/readline.h>
 #include <readline/history.h>
 
 // --- Constants ---
 #define MAX_LEN 512
-#define MAXARGS 10
-#define ARGLEN 30
+#define MAX_ARGS 20      // Max args per simple command
+#define MAX_PIPE_SEGS 10 // Max commands in a single pipeline
 #define PROMPT "shell> "
 
-// *** The HISTORY_SIZE constant is no longer needed. ***
-// *** The 'extern' history variables are no longer needed. ***
+// --- Data Structures ---
+
+/**
+ * @brief Represents a single simple command (e.g., "ls -l > out.txt")
+ */
+typedef struct {
+    char* args[MAX_ARGS + 1]; // Argument list for execvp (e.g., {"ls", "-l", NULL})
+    char* inputFile;          // Filename for input redirection (<)
+    char* outputFile;         // Filename for output redirection (>)
+} SimpleCommand;
+
+/**
+ * @brief Represents a full pipeline of one or more commands.
+ */
+typedef struct {
+    SimpleCommand commands[MAX_PIPE_SEGS]; // Array of simple commands
+    int num_commands;                      // Number of commands in the pipeline
+} Pipeline;
 
 // --- Function Prototypes ---
 
-// *** REMOVED read_cmd prototype ***
-char** tokenize(char* cmdline);
-int    handle_builtin(char** arglist);
+// --- from shell.c ---
+Pipeline* parse_cmdline(char* cmdline);
+void      free_pipeline(Pipeline* pipeline);
+int       handle_builtin(char** arglist);
 
-// Defined in execute.c
-int    execute(char* arglist[]);
-
-// *** REMOVED add_to_history and handle_bang_exec prototypes ***
+// --- from execute.c ---
+int execute_pipeline(Pipeline* pipeline);
 
 #endif // SHELL_H
