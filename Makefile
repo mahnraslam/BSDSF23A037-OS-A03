@@ -1,59 +1,60 @@
  # --- Variables for Directories ---
 SRCDIR = src
+INCDIR = include
 OBJDIR = obj
 BINDIR = bin
 
-# --- Variables for Compiler ---
+# --- Compiler and Flags ---
 CC = gcc
-# We add -I$(SRCDIR) to tell gcc to "look in the src folder for header files"
-CFLAGS = -g -Wall -I$(SRCDIR)
+CFLAGS = -g -Wall -I$(INCDIR)
 
-# --- Variables for Files ---
+# --- File Lists (Explicit) ---
+# We list our .c files manually to avoid errors
+SOURCES = $(SRCDIR)/main.c \
+          $(SRCDIR)/execute.c \
+          $(SRCDIR)/shell.c
 
-# Get all .c file names from the src directory
-# $(wildcard) finds all files matching the pattern
-SOURCES = $(wildcard $(SRCDIR)/*.c)
+# We list our .h file manually
+DEPS = $(INCDIR)/shell.h
 
-# Get the list of header files
-DEPS = $(wildcard $(SRCDIR)/*.h)
+# We list our .o files manually
+OBJS = $(OBJDIR)/main.o \
+       $(OBJDIR)/execute.o \
+       $(OBJDIR)/shell.o
 
-# Create the list of .o files.
-# This substitutes "src/%.c" with "obj/%.o"
-# e.g., "src/main.c" becomes "obj/main.o"
-OBJS = $(patsubst $(SRCDIR)/%.c, $(OBJDIR)/%.o, $(SOURCES))
-
-# Set the name of the final executable, inside the bin directory
+# Name of the final program, inside the bin/ folder
+# This is the line that was missing before!
 TARGET = $(BINDIR)/shell
 
 
-# --- Rules ---
+# --- Rules (The "Recipes") ---
 
-# The first rule is the default.
+# The first rule is the default goal. "make" will run this.
 .PHONY: all
 all: $(TARGET)
 
-# Rule to link the final executable
-# It depends on all the .o files in the obj/ directory
+# Rule to build the final target (the executable)
+# This rule "depends" on all the object files (.o files)
+# The target is "$(TARGET)", which expands to "bin/shell"
 $(TARGET): $(OBJS)
-	# @mkdir -p creates the bin/ directory if it doesn't exist
-	# The @ symbol stops "make" from printing the command
 	@mkdir -p $(BINDIR)
-	# This links all the .o files into the final program in bin/
+	# This is the linking command
+	# $@ means "the target" (bin/shell)
+	# $^ means "all the dependencies" (all the .o files)
 	$(CC) $(CFLAGS) -o $@ $^
 
-# This is the "pattern rule" to build .o files
-# It says: "To make a file like 'obj/%.o', you need its 'src/%.c' file"
+# This is the "Pattern Rule" for building .o files from .c files
+# It says: "To make any file like 'obj/%.o', you need its 'src/%.c' file"
 $(OBJDIR)/%.o: $(SRCDIR)/%.c $(DEPS)
-	# Create the obj/ directory if it doesn't exist
 	@mkdir -p $(OBJDIR)
-	# This compiles (but doesn't link) the .c file
-	# $< is the .c file (the first dependency)
-	# $@ is the .o file (the target)
+	# This is the compilation command
+	# -c = compile only, don't link
+	# $@ means "the target" (e.g., obj/main.o)
+	# $< means "the first dependency" (e.g., src/main.c)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-# Rule to clean up all compiled files
+# Rule to clean up the project
 .PHONY: clean
 clean:
-	# -rf means "recursively, and force"
-	# This completely removes the obj/ and bin/ directories
+	# -rf = recursively, force. Deletes folders and files.
 	rm -rf $(OBJDIR) $(BINDIR)
