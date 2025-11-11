@@ -3,40 +3,32 @@
 
 // (Helper function prototypes)
 static void parse_simple_command(char* cmd_str, SimpleCommand* cmd);
+// We need to declare list_jobs before it's used by handle_builtin
 void list_jobs();
 
 
 /**
  * @brief Parses the entire command line segment into a Pipeline structure.
- * - Detects background operator '&'
- * - Splits the line by pipes '|'
- * - Calls parse_simple_command for each segment
+ * (This function is unchanged from v6)
  */
 Pipeline* parse_cmdline(char* cmdline) {
     Pipeline* pipeline = (Pipeline*)malloc(sizeof(Pipeline));
     pipeline->num_commands = 0;
     pipeline->is_background = 0; // Default to foreground
 
-    // --- TASK 2: Detect Background Operator (&) ---
-    // We check for '&' at the *end* of the command string.
     char* bg_char = strrchr(cmdline, '&');
     if (bg_char != NULL) {
-        // Found '&'. Is it at the end?
         char* next_char = bg_char + 1;
-        // Skip any trailing whitespace
         while (*next_char != '\0' && isspace((unsigned char)*next_char)) {
             next_char++;
         }
         
         if (*next_char == '\0') {
-            // Yes, it's at the end. This is a background command.
             pipeline->is_background = 1;
-            // Remove the '&' from the string so it's not parsed as an argument.
             *bg_char = '\0';
         }
     }
 
-    // --- Stage 1: Split by pipes '|' ---
     char* pipe_segment;
     char* rest = cmdline;
     while ((pipe_segment = strsep(&rest, "|")) != NULL && 
@@ -48,7 +40,6 @@ Pipeline* parse_cmdline(char* cmdline) {
             return NULL;
         }
 
-        // --- Stage 2: Parse the individual command segment ---
         parse_simple_command(pipe_segment, &pipeline->commands[pipeline->num_commands]);
         
         if (pipeline->commands[pipeline->num_commands].args[0] == NULL) {
@@ -74,7 +65,7 @@ Pipeline* parse_cmdline(char* cmdline) {
 
 /**
  * @brief Helper function to parse a single command segment (e.g., "ls -l > file.txt")
- * (This function is unchanged from the previous step)
+ * (This function is unchanged from v6)
  */
 static void parse_simple_command(char* cmd_str, SimpleCommand* cmd) {
     int arg_index = 0;
@@ -118,7 +109,7 @@ static void parse_simple_command(char* cmd_str, SimpleCommand* cmd) {
 
 /**
  * @brief Frees all memory associated with a Pipeline struct.
- * (This function is unchanged)
+ * (This function is unchanged from v6)
  */
 void free_pipeline(Pipeline* pipeline) {
     if (pipeline == NULL) return;
@@ -133,13 +124,9 @@ void free_pipeline(Pipeline* pipeline) {
 
 
 // -----------------------------------------------------------------
-// BUILT-IN COMMAND HANDLER (MODIFIED)
+// *** THIS IS THE FUNCTION YOUR LINKER WAS MISSING ***
+// (This function is from v6)
 // -----------------------------------------------------------------
-
-/**
- * @brief NEW: Implements the 'jobs' built-in command.
- * Lists all currently running background jobs from the global list.
- */
 void list_jobs() {
     printf("Current background jobs:\n");
     if (job_count == 0) {
@@ -148,13 +135,21 @@ void list_jobs() {
     }
     
     for (int i = 0; i < job_count; i++) {
-        // We could add status here, but "Running" is fine for now
         printf("  [Job %d] (PID %d) Running: %s\n", 
                i + 1, job_list[i].pid, job_list[i].cmd_name);
     }
 }
 
 
+// -----------------------------------------------------------------
+// BUILT-IN COMMAND HANDLER (MODIFIED FOR V7)
+// -----------------------------------------------------------------
+/**
+ * @brief Handles built-in commands
+ * @return 0 - Not a built-in
+ * 1 - Built-in, Succeeded
+ * 2 - Built-in, Failed (e.g., cd to non-existent dir)
+ */
 int handle_builtin(char** arglist) {
     char* cmd = arglist[0];
 
@@ -165,12 +160,14 @@ int handle_builtin(char** arglist) {
     if (strcmp(cmd, "cd") == 0) {
         if (arglist[1] == NULL) {
             fprintf(stderr, "cd: expected argument to \"cd\"\n");
+            return 2; // Built-in, FAILED
         } else {
             if (chdir(arglist[1]) != 0) {
                 perror("cd");
+                return 2; // Built-in, FAILED
             }
+            return 1; // Built-in, SUCCEEDED
         }
-        return 1;
     }
 
     if (strcmp(cmd, "help") == 0) {
@@ -183,17 +180,18 @@ int handle_builtin(char** arglist) {
         printf("  exit        - Exit the shell.\n");
         printf("\n");
         printf("Features:\n");
+        printf("  if...then...else...fi - Conditional execution.\n");
         printf("  cmd1 | cmd2 - Pipe output of cmd1 to cmd2.\n");
         printf("  cmd < file  - Redirect stdin from file.\n");
         printf("  cmd > file  - Redirect stdout to file.\n");
         printf("  cmd &       - Run command in the background.\n");
-        printf("  cmd1 ; cmd2 - Run cmd1, then run cmd2.\n");
-        return 1;
+        printf("  cmd1 ; cmd2 - Run cmd1, then run cmd2.\E[1;1H\E[K");
+        return 1; // Built-in, SUCCEEDED
     }
 
-    // --- TASK 4: Implement 'jobs' built-in ---
+    // --- This is the call that was failing ---
     if (strcmp(cmd, "jobs") == 0) {
-        list_jobs(); // Call the new function
+        list_jobs(); // Now the linker can find this function!
         return 1;
     }
 
