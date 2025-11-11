@@ -2,62 +2,122 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+// --- NEW: Global Job List Definition ---
+// These are *defined* here (in one .c file)
+// and *declared* with 'extern' in shell.h (to be visible everywhere)
+Job job_list[MAX_JOBS];
+int job_count = 0;
+
+
+/**
+ * @brief Cleans up "zombie" processes.
+ * Called before each new prompt to check for any background jobs
+ * that have finished.
+ */
+void reap_zombies() {
+    int status;
+    pid_t pid;
+
+    // waitpid(-1, ...) -> wait for *any* child process
+    // WNOHANG -> "Don't hang" (non-blocking). If no child has exited,
+    //            return 0 immediately.
+    
+    // We loop as long as waitpid() finds a completed child
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        // A child has exited! Find it in our job list.
+        for (int i = 0; i < job_count; i++) {
+            if (job_list[i].pid == pid) {
+                // Found it.
+                char* status_msg;
+                if (WIFEXITED(status)) {
+                    status_msg = "Done";
+                } else if (WIFSIGNALED(status)) {
+                    status_msg = "Terminated";
+                } else {
+                    status_msg = "Stopped";
+                }
+                
+                // Notify the user
+                printf("\n[Job %d] %s: %s\n", i + 1, status_msg, job_list[i].cmd_name);
+                
+                // Remove from list by swapping with the last job
+                free(job_list[i].cmd_name); // Free the stored command name
+                job_list[i] = job_list[job_count - 1];
+                job_count--;
+                
+                break; // Found and removed, exit inner loop
+            }
+        }
+    }
+}
+
+
 int main() {
     char* cmdline;
     Pipeline* pipeline;
 
-    // Enable TAB-completion
     rl_bind_key('\t', rl_complete);
 
-    // Loop indefinitely, reading commands
-    while ((cmdline = readline(PROMPT)) != NULL) {
-        
-        // Skip empty commands
+    while (1) {
+        // --- 1. Reap Zombies ---
+        // Before we do anything, check for completed background jobs.
+        reap_zombies();
+
+        // --- 2. Read Command ---
+        cmdline = readline(PROMPT);
+        if (cmdline == NULL) { // Ctrl+D (EOF)
+            break;
+        }
+
+        // --- 3. Process Command ---
         if (cmdline[0] != '\0') {
-            
-            // Add non-empty commands to Readline's history
             add_history(cmdline);
 
-            // --- Parse the command line into a pipeline ---
-            pipeline = parse_cmdline(cmdline);
+            char* full_cmdline_for_free = cmdline; // Save original pointer to free
+            char* command_segment;
 
-            if (pipeline == NULL || pipeline->num_commands == 0) {
-                // Parse error or empty command (e.g., just whitespace)
-                free(cmdline);
-                if (pipeline) free_pipeline(pipeline);
-                continue;
-            }
-
-            // --- Handle Commands ---
-            // Built-in commands (cd, exit, help) are special.
-            // They must run in the parent shell and cannot be piped (in this simple shell).
-            if (pipeline->num_commands == 1) {
-                SimpleCommand* cmd = &pipeline->commands[0];
+            // --- TASK 1: Command Chaining (;) Loop ---
+            // strsep will modify cmdline, which is fine.
+            while ((command_segment = strsep(&cmdline, ";")) != NULL) {
                 
-                // A built-in command cannot have I/O redirection in this shell
-                if (cmd->inputFile == NULL && cmd->outputFile == NULL) {
-                    if (handle_builtin(cmd->args) == 1) {
-                        // It was a built-in, so we're done.
-                        // free_pipeline and free(cmdline) are below.
+                if (*command_segment == '\0') {
+                    continue; // Skip empty segments (e.g., "cmd1;;cmd2")
+                }
+
+                // --- 4. Parse (Pipes, Redirection, Background) ---
+                pipeline = parse_cmdline(command_segment);
+
+                if (pipeline == NULL || pipeline->num_commands == 0) {
+                    if (pipeline) free_pipeline(pipeline);
+                    continue;
+                }
+
+                // --- 5. Execute ---
+                if (pipeline->num_commands == 1 && !pipeline->is_background) {
+                    SimpleCommand* cmd = &pipeline->commands[0];
+                    
+                    // Only run built-in if it's NOT background and NOT
+                    // part of a pipe (which is already true)
+                    if (cmd->inputFile == NULL && cmd->outputFile == NULL) {
+                        if (handle_builtin(cmd->args) == 1) {
+                            // It was a built-in.
+                        } else {
+                            execute_pipeline(pipeline);
+                        }
                     } else {
-                        // Not a built-in, execute it
-                        execute_pipeline(pipeline);
+                         execute_pipeline(pipeline);
                     }
                 } else {
-                     // A simple command with redirection, execute it
-                     execute_pipeline(pipeline);
+                    // It's a pipeline or a background job, execute it.
+                    execute_pipeline(pipeline);
                 }
-            } else {
-                // It's a pipeline, execute it
-                execute_pipeline(pipeline);
-            }
 
-            // Free the memory allocated by the parser
-            free_pipeline(pipeline);
+                free_pipeline(pipeline);
+            
+            } // --- End of semicolon loop ---
+            
+            free(full_cmdline_for_free); // Free the original line
         }
-        
-        // Free the memory allocated by readline()
-        free(cmdline);
     }
 
     printf("\nShell exited.\n");
